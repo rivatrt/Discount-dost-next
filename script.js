@@ -54,7 +54,8 @@ const state = {
 };
 
 // Initialize GoogleGenAI
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Changed to let to allow updating via API Key modal
+let ai = new GoogleGenAI({ apiKey: process.env.API_KEY || localStorage.getItem('gemini_api_key') || 'dummy' });
 
 // --- APP CONTROLLER ---
 window.app = {
@@ -72,9 +73,35 @@ window.app = {
                 }
             });
 
-            // Initial Key Check - Removed manual key check as we use process.env.API_KEY
+            // Initial Key Check
             const modal = document.getElementById('api-key-modal');
-            if(modal) modal.style.display = 'none';
+            const storedKey = localStorage.getItem('gemini_api_key');
+            const envKey = process.env.API_KEY;
+
+            // Determine if we have a valid key to start with
+            // Logic: If envKey is present and valid, use it. 
+            // If not, check storedKey.
+            // If neither, show modal.
+            
+            let hasValidKey = false;
+
+            if (envKey && envKey.length > 5 && envKey !== 'undefined') {
+                // Env key takes priority if valid
+                ai = new GoogleGenAI({ apiKey: envKey });
+                hasValidKey = true;
+            } else if (storedKey && storedKey.length > 5) {
+                // Fallback to stored key
+                ai = new GoogleGenAI({ apiKey: storedKey });
+                hasValidKey = true;
+            }
+
+            if(modal) {
+                if(hasValidKey) {
+                    modal.style.display = 'none';
+                } else {
+                    modal.style.display = 'flex';
+                }
+            }
 
             // Input Listeners
             ['store', 'visits', 'aov', 'discount'].forEach(id => {
@@ -150,12 +177,64 @@ window.app = {
         document.getElementById('install-help-modal').style.display = 'none';
     },
 
-    // --- KEY MANAGER STUBS (Disabled) ---
+    // --- KEY MANAGER STUBS ---
     openKeyManager: () => {
-        alert("API Keys are managed via environment variables.");
+        // Allow resetting the key if needed
+        if (confirm("Reset API Key?")) {
+            localStorage.removeItem('gemini_api_key');
+            location.reload();
+        }
     },
     saveKeys: () => {},
-    saveApiKey: () => {},
+    
+    saveApiKey: async () => {
+        const input = document.getElementById('gemini-key-input');
+        const modal = document.getElementById('api-key-modal');
+        // Select the button inside the modal to show feedback
+        const btn = modal ? modal.querySelector('button') : null;
+        
+        if(!input) return;
+        
+        const key = input.value.trim();
+        if(key.length < 10) {
+            alert("Please enter a valid API Key");
+            return;
+        }
+
+        // UX: Show loading state
+        const originalText = btn ? btn.innerText : 'Start App';
+        if(btn) {
+            btn.innerText = "Validating...";
+            btn.disabled = true;
+            btn.style.opacity = "0.7";
+        }
+
+        try {
+            // Validate the key with a lightweight "ping"
+            const tempAI = new GoogleGenAI({ apiKey: key });
+            await tempAI.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: { parts: [{ text: 'ping' }] }
+            });
+
+            // If we get here, the key is valid
+            localStorage.setItem('gemini_api_key', key);
+            ai = new GoogleGenAI({ apiKey: key });
+            
+            if(modal) modal.style.display = 'none';
+
+        } catch (e) {
+            console.error("API Key Validation Error:", e);
+            alert("API Key Validation Failed.\nPlease ensure the key is active and has credits.\n\nError: " + (e.message || "Unknown error"));
+        } finally {
+            // Restore button state
+            if(btn) {
+                btn.innerText = originalText;
+                btn.disabled = false;
+                btn.style.opacity = "1";
+            }
+        }
+    },
 
     toggleTheme: () => {
         state.isDark = !state.isDark;
@@ -644,6 +723,15 @@ ${inputMenu ? "MENU TEXT:\n" + inputMenu : ""}`;
             window.app.renderStrategy();
 
         } catch (err) {
+            // NEW: specific error handling for API Key/Permissions
+            const errStr = (err.message || err.toString()).toLowerCase();
+            if (errStr.includes('403') || errStr.includes('api key') || errStr.includes('permission_denied')) {
+                alert("API Key Invalid or Expired.\nPlease enter a valid key.");
+                document.getElementById('api-key-modal').style.display = 'flex';
+                window.app.toggleLoader(false);
+                return; // Stop fallback logic
+            }
+
             console.warn("AI failed. Using Smart Parse Fallback:", err);
             
              const deals = [];

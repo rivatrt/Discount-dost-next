@@ -1,3 +1,5 @@
+import { GoogleGenAI } from "@google/genai";
+
 // --- CONSTANTS ---
 const CATEGORIES = [
     { id: 'Restaurant', icon: 'fa-utensils', label: 'Restaurant', brandRef: "Swiggy/Zomato top brands like Domino's" },
@@ -31,12 +33,6 @@ const LOADING_MSGS = [
     "> applying_psychology..."
 ];
 
-const AI_MODELS = [
-    { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', tier: 'High Intelligence' },
-    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'High Speed' },
-    { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash', tier: 'Standard' }
-];
-
 // --- APP STATE ---
 const state = {
     page: 1,
@@ -46,7 +42,6 @@ const state = {
     aov: "",
     discount: "",
     isDark: true,
-    apiKeys: [], // Now array
     strategy: null,
     groundingSources: [],
     loaderInterval: null,
@@ -54,22 +49,12 @@ const state = {
     loaderStepIndex: 0,
     manualItems: [{name:"", price:""}, {name:"", price:""}, {name:"", price:""}],
     installPrompt: null,
-    cooldownTimer: null
+    cooldownTimer: null,
+    selectedFiles: [] // Array of {id, file, data(base64), type}
 };
 
-// Load Keys from Storage
-try {
-    const stored = localStorage.getItem('discount_dost_gemini_keys');
-    if (stored) {
-        state.apiKeys = JSON.parse(stored);
-    } else {
-        // Legacy fallback
-        const single = localStorage.getItem('discount_dost_gemini_key');
-        if (single) state.apiKeys = [single];
-    }
-} catch (e) {
-    console.warn("LocalStorage access denied");
-}
+// Initialize GoogleGenAI
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- APP CONTROLLER ---
 window.app = {
@@ -87,11 +72,9 @@ window.app = {
                 }
             });
 
-            // Initial Key Check
-            if (state.apiKeys.length > 0) {
-                const modal = document.getElementById('api-key-modal');
-                if(modal) modal.style.display = 'none';
-            }
+            // Initial Key Check - Removed manual key check as we use process.env.API_KEY
+            const modal = document.getElementById('api-key-modal');
+            if(modal) modal.style.display = 'none';
 
             // Input Listeners
             ['store', 'visits', 'aov', 'discount'].forEach(id => {
@@ -110,15 +93,13 @@ window.app = {
             }
 
             // --- NATIVE INSTALL LOGIC ---
-            // 1. Android/Chrome/Desktop: Listen for beforeinstallprompt
             window.addEventListener('beforeinstallprompt', (e) => {
-                e.preventDefault(); // Stash event
+                e.preventDefault(); 
                 state.installPrompt = e;
                 const btn = document.getElementById('install-btn');
-                if (btn) btn.style.display = 'flex'; // Show only when available
+                if (btn) btn.style.display = 'flex'; 
             });
 
-            // 2. iOS Detection (No event, check UA + Standalone status)
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document);
             const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
             
@@ -127,7 +108,6 @@ window.app = {
                 if (btn) btn.style.display = 'flex';
             }
 
-            // 3. Hide on successful install
             window.addEventListener('appinstalled', () => {
                 state.installPrompt = null;
                 const btn = document.getElementById('install-btn');
@@ -140,7 +120,6 @@ window.app = {
     },
 
     installPWA: async () => {
-        // SCENARIO A: Native Android/Desktop Prompt available
         if (state.installPrompt) {
             state.installPrompt.prompt();
             const { outcome } = await state.installPrompt.userChoice;
@@ -152,7 +131,6 @@ window.app = {
             return;
         }
 
-        // SCENARIO B: iOS Instructions
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.userAgent.includes("Mac") && "ontouchend" in document);
         
         if (isIOS) {
@@ -172,59 +150,12 @@ window.app = {
         document.getElementById('install-help-modal').style.display = 'none';
     },
 
-    // --- KEY MANAGER ---
+    // --- KEY MANAGER STUBS (Disabled) ---
     openKeyManager: () => {
-        const modal = document.getElementById('key-manager-modal');
-        const list = document.getElementById('key-list');
-        list.innerHTML = '';
-        
-        // Render 5 inputs populated with existing keys
-        for (let i = 0; i < 5; i++) {
-            const val = state.apiKeys[i] || '';
-            list.innerHTML += `
-                <input type="text" id="key-slot-${i}" class="cat-trigger" 
-                    placeholder="Gemini API Key ${i+1}" value="${val}" 
-                    style="padding: 12px; font-size: 14px;">
-            `;
-        }
-        modal.style.display = 'flex';
+        alert("API Keys are managed via environment variables.");
     },
-
-    saveKeys: () => {
-        const newKeys = [];
-        for (let i = 0; i < 5; i++) {
-            const el = document.getElementById(`key-slot-${i}`);
-            if (el && el.value.trim().length > 10) { // Basic validation
-                newKeys.push(el.value.trim());
-            }
-        }
-        
-        if (newKeys.length > 0) {
-            state.apiKeys = newKeys;
-            localStorage.setItem('discount_dost_gemini_keys', JSON.stringify(newKeys));
-            document.getElementById('key-manager-modal').style.display = 'none';
-            
-            // Also hide initial blocker if it was open
-            document.getElementById('api-key-modal').style.display = 'none';
-            alert(`Saved ${newKeys.length} keys.`);
-        } else {
-            alert("Please enter at least one valid key.");
-        }
-    },
-
-    saveApiKey: () => {
-        // Handler for initial blocking modal
-        const input = document.getElementById('gemini-key-input');
-        if (!input) return;
-        const key = input.value.trim();
-        if (key.length > 5) {
-            state.apiKeys = [key];
-            localStorage.setItem('discount_dost_gemini_keys', JSON.stringify(state.apiKeys));
-            document.getElementById('api-key-modal').style.display = 'none';
-        } else {
-            alert("Please enter a valid API key");
-        }
-    },
+    saveKeys: () => {},
+    saveApiKey: () => {},
 
     toggleTheme: () => {
         state.isDark = !state.isDark;
@@ -251,18 +182,15 @@ window.app = {
     renderPage: (page) => {
         state.page = page;
         
-        // Update Tabs
         document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
         const navItem = document.getElementById(`nav-${page}`);
         if(navItem) navItem.classList.add('active');
         
-        // Update Pages
         document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
         const targetPage = page === 1 ? 'view-input' : page === 2 ? 'view-results' : 'view-strategy';
         const pageEl = document.getElementById(targetPage);
         if(pageEl) pageEl.classList.add('active');
 
-        // Header Title
         const titleEl = document.getElementById('page-title');
         if (page === 1) titleEl.innerHTML = "Business<br>Details";
         else if (page === 2) {
@@ -292,7 +220,6 @@ window.app = {
         window.app.navTo(page);
     },
 
-    // --- RENDERING HELPERS ---
     fmt: (n) => "₹" + Math.round(Number(n)).toLocaleString('en-IN'),
     fmtCompact: (n) => {
         n = Number(n);
@@ -314,7 +241,6 @@ window.app = {
         window.print();
     },
 
-    // --- LIVE MATH UPDATE FOR DEALS ---
     updateDealMath: (el) => {
         const card = el.closest('.deal-card');
         if (!card) return;
@@ -419,7 +345,6 @@ window.app = {
         document.getElementById('results-container').innerHTML = html;
     },
 
-    // --- MODALS ---
     openCatModal: () => {
         document.getElementById('cat-modal-bg').classList.add('open');
         document.getElementById('cat-modal-sheet').classList.add('open');
@@ -466,7 +391,6 @@ window.app = {
         }
     },
     
-    // --- SMART FALLBACK GENERATOR ---
     getFallbackMenu: (catId) => {
         const aov = Number(state.aov) || 500;
         const dictionaries = {
@@ -491,7 +415,6 @@ window.app = {
         return items.map(i => `${i.n} ${Math.round(aov * i.p)}`).join('\n');
     },
 
-    // --- COOLDOWN HANDLING ---
     triggerCooldown: () => {
         window.app.toggleLoader(false);
         const overlay = document.getElementById('cooldown-overlay');
@@ -514,112 +437,73 @@ window.app = {
         }, 1000);
     },
 
-    // --- UNIFIED AI FALLBACK HANDLER (MULTI-KEY ROTATION) ---
-    generateWithFallback: async (payloadFactory) => {
-        const textEl = document.getElementById('loader-model-text');
-        
-        // Ensure we have at least one key to try (or legacy)
-        const keysToTry = state.apiKeys.length > 0 ? state.apiKeys : [];
-        if (keysToTry.length === 0) throw new Error("No API Keys");
+    handleFilesSelect: async (input) => {
+        if (!input.files || input.files.length === 0) return;
 
-        // Loop Models (Best to Worst)
-        for (let m = 0; m < AI_MODELS.length; m++) {
-            const model = AI_MODELS[m];
-            
-            // Loop Keys (Try all keys on Best Model before downgrading)
-            for (let k = 0; k < keysToTry.length; k++) {
-                const currentKey = keysToTry[k];
+        const MAX_SIZE_MB = 10;
+        const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
 
-                if (textEl) {
-                    textEl.innerText = `${model.label} (Key ${k+1})`;
-                }
-
-                try {
-                    const body = payloadFactory(model.id);
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.id}:generateContent?key=${currentKey}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(body)
-                    });
-
-                    if (response.status === 429 || response.status === 503) {
-                        console.warn(`Model ${model.id} with Key ${k+1} exhausted.`);
-                        continue; // Try next key
-                    }
-
-                    if (!response.ok) {
-                         const err = await response.text();
-                         console.warn(`Model ${model.id} error:`, err);
-                         continue; // Fatal error for this request, but try next key just in case
-                    }
-
-                    const data = await response.json();
-                    return data; // Success!
-
-                } catch (e) {
-                    console.warn(`Network error with Key ${k+1}`);
-                    continue; // Try next key
-                }
+        Array.from(input.files).forEach(file => {
+            if (!ALLOWED_TYPES.includes(file.type) && !file.name.endsWith('.docx') && !file.name.endsWith('.doc')) {
+                alert(`File type not supported: ${file.name}`);
+                return;
+            }
+            if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+                alert(`File too large (Max ${MAX_SIZE_MB}MB): ${file.name}`);
+                return;
             }
             
-            // If we are here, ALL keys failed for this model.
-            // Downgrade model visually
-             if (textEl && m < AI_MODELS.length - 1) {
-                textEl.innerText = `Downgrading to ${AI_MODELS[m+1].label}...`;
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-        
-        // If we get here, everything failed.
-        throw new Error("QuotaExhausted");
-    },
-
-    // --- IMAGE HANDLING & AI (GEMINI) ---
-    handleFile: async (input) => {
-        if (input.files && input.files[0]) {
-            const file = input.files[0];
             const reader = new FileReader();
-
-            window.app.toggleLoader(true, true); // true, true for scan mode
-            
-            reader.onload = async (e) => {
-                const base64Data = e.target.result;
-                const base64Content = base64Data.split(',')[1]; // Strip header
-
-                try {
-                    // GENERATE WITH FALLBACK
-                    const result = await window.app.generateWithFallback((modelId) => ({
-                        contents: [{
-                            parts: [
-                                { text: "Extract list of menu items and prices. Output simple text list." },
-                                { inline_data: { mime_type: "image/jpeg", data: base64Content } }
-                            ]
-                        }]
-                    }));
-
-                    let scannedText = result?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                    if (!scannedText || scannedText.length < 5) throw new Error("OCR yielded little text");
-
-                    document.getElementById('menu-text').value = scannedText.trim();
-                    window.app.toggleLoader(false);
-
-                } catch (err) {
-                    if (err.message === "QuotaExhausted") {
-                        window.app.triggerCooldown();
-                    } else {
-                        console.warn("AI Scan failed. Using Smart Fallback.", err);
-                        const fallbackData = window.app.getFallbackMenu(state.category.id);
-                        document.getElementById('menu-text').value = fallbackData;
-                        setTimeout(() => window.app.toggleLoader(false), 800);
-                    }
-                }
+            reader.onload = (e) => {
+                state.selectedFiles.push({
+                    id: Date.now() + Math.random(),
+                    file: file,
+                    data: e.target.result, 
+                    type: file.type || 'application/octet-stream',
+                    name: file.name
+                });
+                window.app.renderPreviews();
             };
             reader.readAsDataURL(file);
-        }
+        });
+
+        input.value = '';
     },
 
-    // --- AI ANALYSIS (GEMINI) ---
-    toggleLoader: (show, isScanning = false) => {
+    removeFile: (id) => {
+        state.selectedFiles = state.selectedFiles.filter(f => f.id !== id);
+        window.app.renderPreviews();
+    },
+
+    renderPreviews: () => {
+        const container = document.getElementById('file-preview-container');
+        if (!container) return;
+
+        if (state.selectedFiles.length === 0) {
+            container.innerHTML = '';
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'grid';
+        container.innerHTML = state.selectedFiles.map(f => {
+            const isImg = f.type.startsWith('image/');
+            const icon = f.type.includes('pdf') ? 'fa-file-pdf' : 'fa-file-word';
+            const color = f.type.includes('pdf') ? '#FF5722' : '#2196F3';
+            
+            return `
+                <div class="preview-item">
+                    <div class="preview-remove" onclick="app.removeFile(${f.id})"><i class="fa fa-times"></i></div>
+                    ${isImg 
+                        ? `<img src="${f.data}" class="preview-img">` 
+                        : `<div class="preview-doc"><i class="fa ${icon}" style="font-size:24px; color:${color}; margin-bottom:4px;"></i><div class="doc-name">${f.name}</div></div>`
+                    }
+                </div>
+            `;
+        }).join('');
+    },
+
+    toggleLoader: (show) => {
         const loader = document.getElementById('loader');
         const quoteBox = document.getElementById('loader-quote');
         const textEl = document.getElementById('loader-model-text');
@@ -629,24 +513,20 @@ window.app = {
         if (show) {
             loader.style.display = 'flex';
             
-            // Personalize
             if(storeNameEl) storeNameEl.innerText = state.storeName || "Your Business";
 
-            // Reset Badge
             if (textEl) {
-                textEl.innerText = `GEMINI 3 PRO`; // Default start
+                textEl.innerText = `GEMINI 3 PRO`;
             }
 
-            // START TIPS ROTATION (MERCHANT TIPS)
             const rotateTip = () => {
                 const tip = MERCHANT_TIPS[Math.floor(Math.random() * MERCHANT_TIPS.length)];
                 quoteBox.innerText = tip;
             };
-            rotateTip(); // Initial
+            rotateTip(); 
             if (state.tipInterval) clearInterval(state.tipInterval);
-            state.tipInterval = setInterval(rotateTip, 4000); // Change every 4s
+            state.tipInterval = setInterval(rotateTip, 4000); 
             
-            // START TERMINAL TEXT ANIMATION
             let msgIdx = 0;
             if (terminal) terminal.innerHTML = "";
             if (state.terminalInterval) clearInterval(state.terminalInterval);
@@ -657,7 +537,7 @@ window.app = {
                 line.className = 'term-line';
                 line.innerText = msg;
                 if(terminal) {
-                    terminal.innerHTML = ""; // Keep it clean, single line or append
+                    terminal.innerHTML = ""; 
                     terminal.appendChild(line);
                 }
                 msgIdx++;
@@ -674,18 +554,27 @@ window.app = {
 
     startAnalysis: async (manualText) => {
         const inputMenu = manualText || document.getElementById('menu-text').value;
-        if (!inputMenu || inputMenu.length < 3) return alert("Please enter menu items");
+        const hasFiles = state.selectedFiles.length > 0;
+
+        if ((!inputMenu || inputMenu.length < 3) && !hasFiles) {
+            return alert("Please enter menu items or attach a menu file.");
+        }
+
+        const hasDocx = state.selectedFiles.some(f => f.name.endsWith('.doc') || f.name.endsWith('.docx'));
+        if (hasDocx) {
+            return alert("Word documents (.doc/docx) are currently supported for upload but cannot be processed by the AI yet. Please convert to PDF or Image.");
+        }
 
         window.app.toggleLoader(true);
 
-        const prompt = `Role: World-class loyalty strategist for a ${state.category.label} named '${state.storeName}'.
+        const promptText = `Role: World-class loyalty strategist for a ${state.category.label} named '${state.storeName}'.
 Business Context:
 - AOV: ₹${state.aov}
 - Daily Footfall: ${state.visits}
 - Current Discount: ${state.discount}%
 
-Menu/Items:
-${inputMenu}
+Menu/Data Source:
+${inputMenu ? "See text below." : "See attached files."}
 
 Goal: Create a retention strategy using psychological "Dark Patterns" (Ethical FOMO, Loss Aversion, Gamification, Decoy Effect).
 
@@ -695,7 +584,7 @@ Requirements:
    - Use 'deal_price' = Sum of items (Full MRP). We do NOT discount cash. We give GOLD.
    - Gold Value should be ~10-15% of deal_price.
    - Titles should use triggers like "Limited Edition", "Weekend Loot", "Family Feast".
-   - CRITICAL: In deal description and product info, ONLY show real data and prices from the input menu. Do not invent items.
+   - CRITICAL: In deal description and product info, ONLY show real data and prices from the input menu/files. Do not invent items.
 
 2. 5 Gold Vouchers:
    - For retention. "Spend ₹X, Get ₹Y Gold Next Time".
@@ -711,19 +600,34 @@ Output JSON:
   "deals": [{"title": "string", "items": "string", "real_value": number, "deal_price": number, "gold": number}], 
   "vouchers": [{"threshold": number, "amount": number, "desc": "string"}], 
   "repeatCard": {"trigger": "Bill > Amount", "next_visit_min_spend": number, "next_visit_gold_reward": number, "card_title": "string", "card_desc": "string"}
-}`;
+}
+
+${inputMenu ? "MENU TEXT:\n" + inputMenu : ""}`;
+
+        const parts = [{ text: promptText }];
+        
+        state.selectedFiles.forEach(f => {
+            const base64Data = f.data.split(',')[1];
+            parts.push({
+                inlineData: {
+                    mimeType: f.type,
+                    data: base64Data
+                }
+            });
+        });
 
         try {
-            // GENERATE WITH FALLBACK
-            const result = await window.app.generateWithFallback((modelId) => ({
-                contents: [{ parts: [{ text: prompt }] }],
-                tools: [{ googleSearch: {} }] 
-            }));
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-pro-preview',
+                contents: { parts: parts },
+                config: {
+                    tools: [{ googleSearch: {} }],
+                }
+            });
 
-            const candidate = result?.candidates?.[0];
-            let jsonText = candidate?.content?.parts?.[0]?.text;
+            let jsonText = response.text;
             
-            // Extract Grounding Metadata
+            const candidate = response.candidates?.[0];
             const groundingChunks = candidate?.groundingMetadata?.groundingChunks || [];
             state.groundingSources = groundingChunks.map(c => c.web).filter(w => w);
 
@@ -740,18 +644,14 @@ Output JSON:
             window.app.renderStrategy();
 
         } catch (err) {
-            if (err.message === "QuotaExhausted") {
-                window.app.triggerCooldown();
-            } else {
-                console.warn("AI failed. Using Smart Parse Fallback:", err);
-                // Simple Fallback logic...
-                 const deals = [];
-                 for(let i=0; i<10; i++) deals.push({title: "Offer "+(i+1), items: "Best Items", real_value: Number(state.aov), deal_price: Number(state.aov), gold: Math.round(state.aov*0.1)});
-                 const vouchers = [{threshold: 1000, amount: 100, desc: "Visit Bonus"}];
-                 const repeatCard = {trigger: "Bill > 500", next_visit_min_spend: 1000, next_visit_gold_reward: 100, card_title: "Platinum Club", card_desc: "Physical Loyalty Card"};
-                 state.strategy = { deals, vouchers, repeatCard };
-                 window.app.renderStrategy();
-            }
+            console.warn("AI failed. Using Smart Parse Fallback:", err);
+            
+             const deals = [];
+             for(let i=0; i<10; i++) deals.push({title: "Offer "+(i+1), items: "Best Items", real_value: Number(state.aov), deal_price: Number(state.aov), gold: Math.round(state.aov*0.1)});
+             const vouchers = [{threshold: 1000, amount: 100, desc: "Visit Bonus"}];
+             const repeatCard = {trigger: "Bill > 500", next_visit_min_spend: 1000, next_visit_gold_reward: 100, card_title: "Platinum Club", card_desc: "Physical Loyalty Card"};
+             state.strategy = { deals, vouchers, repeatCard };
+             window.app.renderStrategy();
         } finally {
              setTimeout(() => window.app.toggleLoader(false), 500);
         }
@@ -767,7 +667,6 @@ Output JSON:
 
         let html = '';
 
-        // --- REGENERATE BUTTON ---
         html += `
             <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
                 <button class="btn ripple-effect" style="width: auto; padding: 8px 16px; font-size: 11px; height: 32px; background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-color);" onclick="app.startAnalysis()">
@@ -776,7 +675,6 @@ Output JSON:
             </div>
         `;
 
-        // --- GROUNDING SOURCES ---
         if (sources.length > 0) {
             html += `
                 <div style="margin-bottom: 20px; padding: 15px; background: rgba(66, 133, 244, 0.1); border: 1px solid rgba(66, 133, 244, 0.3); border-radius: 12px; animation: fadeUp 0.5s ease;">
@@ -797,7 +695,6 @@ Output JSON:
             html += `</div></div>`;
         }
         
-        // --- DEALS SECTION ---
         html += `
             <div style="display: flex; alignItems: center; gap: 8px; margin-bottom: 15px; margin-top: 10px;">
                 <div style="width: 24px; height: 24px; background: #FF5722; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">
@@ -817,14 +714,12 @@ Output JSON:
             const gstOnFee = Math.round(platformFee * 0.18);
             const net = price - gold - platformFee - gstOnFee;
             
-            // Calculate starting percentages for display
             const goldPct = Math.round((gold / price) * 100) || 10;
             const feePct = 10;
             const gstPct = 18;
 
             html += `
                 <div class="deal-card deal-card-new stagger-in" onclick="app.toggleDeal(this)" style="animation-delay: ${idx * 0.05}s;">
-                    <!-- HEADER -->
                     <div class="deal-header">
                         <div style="font-size: 10px; font-weight: 800; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px;">
                             DEAL #${idx+1}
@@ -834,7 +729,6 @@ Output JSON:
                         </div>
                     </div>
 
-                    <!-- BODY -->
                     <div class="deal-body">
                         <div contenteditable="true" style="font-size: 18px; font-weight: 800; margin-bottom: 6px; color: var(--text-main); line-height: 1.3;">${deal.title}</div>
                         <div contenteditable="true" style="font-size: 13px; color: var(--text-sub); line-height: 1.4; opacity: 0.8;">${deal.items}</div>
@@ -855,7 +749,6 @@ Output JSON:
                         </div>
                     </div>
 
-                    <!-- EDITABLE BREAKDOWN (PERCENTAGE RESTORED) -->
                     <div class="math-breakdown">
                         <div style="padding: 20px;">
                             <div class="math-row">
@@ -897,7 +790,6 @@ Output JSON:
         html += `
             </div>
             
-            <!-- VOUCHERS -->
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px; margin-top: 40px;">
                 <div style="width: 24px; height: 24px; background: #FFC107; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: black; font-size: 12px;">
                     <i class="fa fa-gift"></i>
@@ -926,7 +818,6 @@ Output JSON:
         html += `
             </div>
             
-            <!-- PHYSICAL REPEAT CARD -->
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px; margin-top: 40px;">
                 <div style="width: 24px; height: 24px; background: #4CAF50; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">
                     <i class="fa fa-credit-card"></i>
@@ -935,7 +826,6 @@ Output JSON:
             </div>
             
             <div class="repeat-card-wrapper stagger-in" onclick="app.toggleDeal(this)" style="animation-delay: 1s;">
-                <!-- VISUAL CARD FRONT -->
                 <div class="repeat-card-visual">
                     <div class="rc-logo-corner"><i class="fa fa-infinity"></i></div>
                     <div>
@@ -952,7 +842,6 @@ Output JSON:
                     </div>
                 </div>
 
-                <!-- EDIT PANEL -->
                 <div class="math-breakdown">
                     <div style="padding: 20px;">
                         <div style="font-size: 11px; font-weight: 800; color: var(--text-sub); text-transform: uppercase; margin-bottom: 15px;">Physical Card Logic</div>
@@ -991,9 +880,8 @@ Output JSON:
     }
 };
 
-// Initialize
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', window.app.init);
 } else {
     window.app.init();
-                }
+}

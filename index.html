@@ -228,6 +228,14 @@
         .rc-input-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13px; padding: 0 5px; }
         .rc-val-edit { background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px 12px; border-radius: 8px; width: 90px; text-align: right; font-weight: 700; }
 
+        /* PREVIEW STYLES */
+        .preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 10px; margin-top: 15px; }
+        .preview-item { position: relative; aspect-ratio: 1; border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color); background: var(--bg-input); }
+        .preview-img { width: 100%; height: 100%; object-fit: cover; }
+        .preview-doc { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5px; text-align: center; }
+        .preview-remove { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; background: rgba(0,0,0,0.7); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; cursor: pointer; z-index: 5; }
+        .doc-name { font-size: 8px; color: var(--text-sub); margin-top: 4px; word-break: break-all; line-height: 1.2; }
+
         /* NAV */
         .bottom-nav { 
             position: fixed; bottom: 0; left: 0; right: 0; 
@@ -357,6 +365,16 @@
             .math-breakdown { display: none !important; } /* Hide math details on print */
         }
     </style>
+<script type="importmap">
+{
+  "imports": {
+    "path": "https://esm.sh/path@^0.12.7",
+    "vite": "https://esm.sh/vite@^7.2.7",
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
+    "url": "https://esm.sh/url@^0.11.4"
+  }
+}
+</script>
 </head>
 <body>
     <div id="root">
@@ -484,17 +502,23 @@
                 <div id="strategy-input-panel" class="card">
                     <div style="font-weight: 700; font-size: 18px; margin-bottom: 5px;">Create Brand Strategy</div>
                     <div style="font-size: 13px; color: var(--text-sub); margin-bottom: 20px;">AI will benchmark <b id="strategy-store-name">your store</b>.</div>
-                    <textarea id="menu-text" rows="5" placeholder="Paste menu items...&#10;e.g. Chicken Burger 250&#10;Veg Pizza 400"></textarea>
+                    
+                    <textarea id="menu-text" rows="4" placeholder="Paste menu items OR upload menu images/PDFs..."></textarea>
+                    
+                    <!-- PREVIEW AREA -->
+                    <div id="file-preview-container" class="preview-grid"></div>
+
                     <div style="display: flex; gap: 12px; margin-top: 15px;">
-                        <button class="btn btn-black ripple-effect" style="flex: 1;" onclick="app.startAnalysis()">Analyze Menu</button>
+                        <button class="btn btn-black ripple-effect" style="flex: 1;" onclick="app.startAnalysis()">Analyze Data</button>
                         <button class="btn ripple-effect" style="flex: 1; background: var(--bg-input); color: var(--text-main);" onclick="document.getElementById('file-in').click()">
-                            <i class="fa fa-camera"></i> Scan
+                            <i class="fa fa-paperclip"></i> Attach Files
                         </button>
                     </div>
+                    
                     <div style="text-align: center; margin-top: 15px;">
                          <span style="font-size: 12px; color: var(--text-sub); text-decoration: underline; cursor: pointer;" onclick="app.openManualModal()">Or enter items manually</span>
                     </div>
-                    <input type="file" id="file-in" style="display: none;" accept="image/*" onchange="app.handleFile(this)">
+                    <input type="file" id="file-in" style="display: none;" multiple accept="image/jpeg, image/png, image/webp, application/pdf, .doc, .docx" onchange="app.handleFilesSelect(this)">
                 </div>
 
                 <div id="strategy-results" style="padding-bottom: 50px; display: none;"></div>
